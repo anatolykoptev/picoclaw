@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 )
@@ -64,13 +65,16 @@ func (c *BaseChannel) HandleMessage(senderID, chatID, content string, media []st
 		return
 	}
 
+	sessionKey := fmt.Sprintf("%s:%s", c.name, chatID)
+
 	msg := bus.InboundMessage{
-		Channel:  c.name,
-		SenderID: senderID,
-		ChatID:   chatID,
-		Content:  content,
-		Media:    media,
-		Metadata: metadata,
+		Channel:    c.name,
+		SenderID:   senderID,
+		ChatID:     chatID,
+		Content:    content,
+		Media:      media,
+		Metadata:   metadata,
+		SessionKey: sessionKey,
 	}
 
 	c.bus.PublishInbound(msg)
