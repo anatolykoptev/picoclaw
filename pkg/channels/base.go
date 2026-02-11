@@ -3,8 +3,10 @@ package channels
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/picoclaw/pkg/logger"
 )
 
 type Channel interface {
@@ -20,11 +22,18 @@ type BaseChannel struct {
 	config    interface{}
 	bus       *bus.MessageBus
 	running   bool
+	mu        sync.RWMutex
 	name      string
 	allowList []string
 }
 
 func NewBaseChannel(name string, config interface{}, bus *bus.MessageBus, allowList []string) *BaseChannel {
+	if len(allowList) == 0 {
+		logger.WarnCF("channels", "allow_from is empty — all users can interact", map[string]interface{}{
+			"channel": name,
+		})
+	}
+
 	return &BaseChannel{
 		config:    config,
 		bus:       bus,
@@ -39,6 +48,8 @@ func (c *BaseChannel) Name() string {
 }
 
 func (c *BaseChannel) IsRunning() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.running
 }
 
@@ -81,5 +92,7 @@ func (c *BaseChannel) HandleMessage(senderID, chatID, content string, media []st
 }
 
 func (c *BaseChannel) setRunning(running bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.running = running
 }

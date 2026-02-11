@@ -90,7 +90,7 @@ func (c *MemDBClient) Search(ctx context.Context, query string) (*SearchResult, 
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5 MB max
 	if err != nil {
 		return nil, fmt.Errorf("read search response: %w", err)
 	}

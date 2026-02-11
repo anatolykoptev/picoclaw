@@ -25,6 +25,7 @@ type TelegramChannel struct {
 	bot          *tgbotapi.BotAPI
 	config       config.TelegramConfig
 	chatIDs      map[string]int64
+	chatIDsMu    sync.RWMutex
 	updates      tgbotapi.UpdatesChannel
 	transcriber  *voice.GroqTranscriber
 	placeholders sync.Map // chatID -> messageID
@@ -164,7 +165,9 @@ func (c *TelegramChannel) handleMessage(update tgbotapi.Update) {
 	}
 
 	chatID := message.Chat.ID
+	c.chatIDsMu.Lock()
 	c.chatIDs[senderID] = chatID
+	c.chatIDsMu.Unlock()
 
 	content := ""
 	mediaPaths := []string{}
@@ -307,7 +310,8 @@ func (c *TelegramChannel) downloadFileWithInfo(file *tgbotapi.File, ext string) 
 	}
 
 	url := file.Link(c.bot.Token)
-	log.Printf("File URL: %s", url)
+	redactedURL := strings.Replace(url, c.bot.Token, "REDACTED", 1)
+	log.Printf("File URL: %s", redactedURL)
 
 	mediaDir := filepath.Join(os.TempDir(), "picoclaw_media")
 	if err := os.MkdirAll(mediaDir, 0755); err != nil {
@@ -370,7 +374,8 @@ func (c *TelegramChannel) downloadFile(fileID, ext string) string {
 	}
 
 	url := file.Link(c.bot.Token)
-	log.Printf("File URL: %s", url)
+	redactedURL := strings.Replace(url, c.bot.Token, "REDACTED", 1)
+	log.Printf("File URL: %s", redactedURL)
 
 	mediaDir := filepath.Join(os.TempDir(), "picoclaw_media")
 	if err := os.MkdirAll(mediaDir, 0755); err != nil {

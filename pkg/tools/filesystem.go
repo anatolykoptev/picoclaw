@@ -7,7 +7,13 @@ import (
 	"path/filepath"
 )
 
-type ReadFileTool struct{}
+type ReadFileTool struct {
+	allowedDir string
+}
+
+func NewReadFileTool(allowedDir string) *ReadFileTool {
+	return &ReadFileTool{allowedDir: allowedDir}
+}
 
 func (t *ReadFileTool) Name() string {
 	return "read_file"
@@ -36,7 +42,12 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]interface{})
 		return "", fmt.Errorf("path is required")
 	}
 
-	content, err := os.ReadFile(path)
+	absPath, err := ValidatePath(path, t.allowedDir)
+	if err != nil {
+		return "", err
+	}
+
+	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
@@ -44,7 +55,13 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]interface{})
 	return string(content), nil
 }
 
-type WriteFileTool struct{}
+type WriteFileTool struct {
+	allowedDir string
+}
+
+func NewWriteFileTool(allowedDir string) *WriteFileTool {
+	return &WriteFileTool{allowedDir: allowedDir}
+}
 
 func (t *WriteFileTool) Name() string {
 	return "write_file"
@@ -82,19 +99,36 @@ func (t *WriteFileTool) Execute(ctx context.Context, args map[string]interface{}
 		return "", fmt.Errorf("content is required")
 	}
 
-	dir := filepath.Dir(path)
+	absPath, err := ValidatePath(path, t.allowedDir)
+	if err != nil {
+		return "", err
+	}
+
+	// Validate that the parent directory is also within the workspace before
+	// creating intermediate directories.
+	dir := filepath.Dir(absPath)
+	if _, err := ValidatePath(dir, t.allowedDir); err != nil {
+		return "", err
+	}
+
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
 	return "File written successfully", nil
 }
 
-type ListDirTool struct{}
+type ListDirTool struct {
+	allowedDir string
+}
+
+func NewListDirTool(allowedDir string) *ListDirTool {
+	return &ListDirTool{allowedDir: allowedDir}
+}
 
 func (t *ListDirTool) Name() string {
 	return "list_dir"
@@ -123,7 +157,12 @@ func (t *ListDirTool) Execute(ctx context.Context, args map[string]interface{}) 
 		path = "."
 	}
 
-	entries, err := os.ReadDir(path)
+	absPath, err := ValidatePath(path, t.allowedDir)
+	if err != nil {
+		return "", err
+	}
+
+	entries, err := os.ReadDir(absPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read directory: %w", err)
 	}

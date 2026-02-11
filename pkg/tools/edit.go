@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -67,26 +66,9 @@ func (t *EditFileTool) Execute(ctx context.Context, args map[string]interface{})
 	}
 
 	// Resolve path and enforce directory restriction if configured
-	resolvedPath := path
-	if filepath.IsAbs(path) {
-		resolvedPath = filepath.Clean(path)
-	} else {
-		abs, err := filepath.Abs(path)
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve path: %w", err)
-		}
-		resolvedPath = abs
-	}
-
-	// Check directory restriction
-	if t.allowedDir != "" {
-		allowedAbs, err := filepath.Abs(t.allowedDir)
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve allowed directory: %w", err)
-		}
-		if !strings.HasPrefix(resolvedPath, allowedAbs) {
-			return "", fmt.Errorf("path %s is outside allowed directory %s", path, t.allowedDir)
-		}
+	resolvedPath, err := ValidatePath(path, t.allowedDir)
+	if err != nil {
+		return "", err
 	}
 
 	if _, err := os.Stat(resolvedPath); os.IsNotExist(err) {
@@ -118,10 +100,12 @@ func (t *EditFileTool) Execute(ctx context.Context, args map[string]interface{})
 	return fmt.Sprintf("Successfully edited %s", path), nil
 }
 
-type AppendFileTool struct{}
+type AppendFileTool struct {
+	allowedDir string
+}
 
-func NewAppendFileTool() *AppendFileTool {
-	return &AppendFileTool{}
+func NewAppendFileTool(allowedDir string) *AppendFileTool {
+	return &AppendFileTool{allowedDir: allowedDir}
 }
 
 func (t *AppendFileTool) Name() string {
@@ -160,7 +144,10 @@ func (t *AppendFileTool) Execute(ctx context.Context, args map[string]interface{
 		return "", fmt.Errorf("content is required")
 	}
 
-	filePath := filepath.Clean(path)
+	filePath, err := ValidatePath(path, t.allowedDir)
+	if err != nil {
+		return "", err
+	}
 
 	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {

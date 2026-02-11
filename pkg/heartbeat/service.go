@@ -123,7 +123,7 @@ Be proactive in identifying potential issues or improvements.
 
 func (hs *HeartbeatService) log(message string) {
 	logFile := filepath.Join(hs.workspace, "memory", "heartbeat.log")
-	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return
 	}

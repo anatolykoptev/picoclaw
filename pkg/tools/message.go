@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"sync"
 )
 
 type SendCallback func(channel, chatID, content string) error
@@ -11,6 +12,7 @@ type MessageTool struct {
 	sendCallback   SendCallback
 	defaultChannel string
 	defaultChatID  string
+	mu             sync.RWMutex
 }
 
 func NewMessageTool() *MessageTool {
@@ -47,6 +49,8 @@ func (t *MessageTool) Parameters() map[string]interface{} {
 }
 
 func (t *MessageTool) SetContext(channel, chatID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.defaultChannel = channel
 	t.defaultChatID = chatID
 }
@@ -64,12 +68,14 @@ func (t *MessageTool) Execute(ctx context.Context, args map[string]interface{}) 
 	channel, _ := args["channel"].(string)
 	chatID, _ := args["chat_id"].(string)
 
+	t.mu.RLock()
 	if channel == "" {
 		channel = t.defaultChannel
 	}
 	if chatID == "" {
 		chatID = t.defaultChatID
 	}
+	t.mu.RUnlock()
 
 	if channel == "" || chatID == "" {
 		return "Error: No target channel/chat specified", nil

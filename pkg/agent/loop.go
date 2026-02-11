@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -33,7 +34,7 @@ type AgentLoop struct {
 	contextBuilder *ContextBuilder
 	tools          *tools.ToolRegistry
 	memdb          *memory.MemDBClient
-	running        bool
+	running        atomic.Bool
 }
 
 func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers.LLMProvider) *AgentLoop {
@@ -41,9 +42,9 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	os.MkdirAll(workspace, 0755)
 
 	toolsRegistry := tools.NewToolRegistry()
-	toolsRegistry.Register(&tools.ReadFileTool{})
-	toolsRegistry.Register(&tools.WriteFileTool{})
-	toolsRegistry.Register(&tools.ListDirTool{})
+	toolsRegistry.Register(tools.NewReadFileTool(workspace))
+	toolsRegistry.Register(tools.NewWriteFileTool(workspace))
+	toolsRegistry.Register(tools.NewListDirTool(workspace))
 	toolsRegistry.Register(tools.NewExecTool(workspace))
 
 	braveAPIKey := cfg.Tools.Web.Search.APIKey
@@ -105,14 +106,13 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		contextBuilder: NewContextBuilder(workspace, func() []string { return toolsRegistry.GetSummaries() }),
 		tools:          toolsRegistry,
 		memdb:          memdbClient,
-		running:        false,
 	}
 }
 
 func (al *AgentLoop) Run(ctx context.Context) error {
-	al.running = true
+	al.running.Store(true)
 
-	for al.running {
+	for al.running.Load() {
 		select {
 		case <-ctx.Done():
 			return nil
@@ -141,7 +141,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 }
 
 func (al *AgentLoop) Stop() {
-	al.running = false
+	al.running.Store(false)
 }
 
 func (al *AgentLoop) ProcessDirect(ctx context.Context, content, sessionKey string) (string, error) {

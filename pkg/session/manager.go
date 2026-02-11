@@ -147,7 +147,7 @@ func (sm *SessionManager) Save(session *Session) error {
 		return err
 	}
 
-	return os.WriteFile(sessionPath, data, 0644)
+	return os.WriteFile(sessionPath, data, 0600)
 }
 
 func (sm *SessionManager) loadSessions() error {

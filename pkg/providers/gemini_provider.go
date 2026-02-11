@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 // GeminiProvider implements LLMProvider using the native Gemini REST API.
@@ -21,7 +22,7 @@ func NewGeminiProvider(apiKey, apiBase string) *GeminiProvider {
 		apiKey:  apiKey,
 		apiBase: apiBase,
 		httpClient: &http.Client{
-			Timeout: 0,
+			Timeout: 120 * time.Second,
 		},
 	}
 }

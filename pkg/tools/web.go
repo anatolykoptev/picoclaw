@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -13,8 +14,67 @@ import (
 )
 
 const (
-	userAgent = "Mozilla/5.0 (compatible; picoclaw/1.0)"
+	userAgent          = "Mozilla/5.0 (compatible; picoclaw/1.0)"
+	maxWebFetchBodySize = 10 * 1024 * 1024 // 10 MB
 )
+
+// privateIPNets contains CIDR ranges that should be blocked to prevent SSRF.
+var privateIPNets []*net.IPNet
+
+func init() {
+	cidrs := []string{
+		"127.0.0.0/8",    // loopback
+		"10.0.0.0/8",     // private
+		"172.16.0.0/12",  // private
+		"192.168.0.0/16", // private
+		"169.254.0.0/16", // link-local / AWS metadata
+		"fd00::/8",       // IPv6 private
+		"::1/128",        // IPv6 loopback
+	}
+	for _, cidr := range cidrs {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err == nil {
+			privateIPNets = append(privateIPNets, ipNet)
+		}
+	}
+}
+
+// isPrivateIP checks whether an IP address falls within a private/internal range.
+func isPrivateIP(ip net.IP) bool {
+	for _, ipNet := range privateIPNets {
+		if ipNet.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// validateHostNotPrivate resolves a hostname and returns an error if any resolved
+// IP address is private or internal (SSRF prevention).
+func validateHostNotPrivate(host string) error {
+	// Strip port if present
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+
+	addrs, err := net.LookupHost(hostname)
+	if err != nil {
+		return fmt.Errorf("failed to resolve host %q: %w", hostname, err)
+	}
+
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		if isPrivateIP(ip) {
+			return fmt.Errorf("access denied: cannot fetch private/internal URLs")
+		}
+	}
+
+	return nil
+}
 
 type WebSearchTool struct {
 	apiKey     string
@@ -190,6 +250,11 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]interface{})
 		return "", fmt.Errorf("missing domain in URL")
 	}
 
+	// SSRF prevention: resolve hostname and block private/internal IPs
+	if err := validateHostNotPrivate(parsedURL.Host); err != nil {
+		return "", err
+	}
+
 	maxChars := t.maxChars
 	if mc, ok := args["maxChars"].(float64); ok {
 		if int(mc) > 100 {
@@ -226,7 +291,7 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]interface{})
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxWebFetchBodySize))
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}

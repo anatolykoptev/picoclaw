@@ -22,22 +22,61 @@ type ExecTool struct {
 
 func NewExecTool(workingDir string) *ExecTool {
 	denyPatterns := []*regexp.Regexp{
+		// --- Original patterns (keep) ---
 		regexp.MustCompile(`\brm\s+-[rf]{1,2}\b`),
 		regexp.MustCompile(`\bdel\s+/[fq]\b`),
 		regexp.MustCompile(`\brmdir\s+/s\b`),
-		regexp.MustCompile(`\b(format|mkfs|diskpart)\b\s`), // Match disk wiping commands (must be followed by space/args)
+		regexp.MustCompile(`\b(format|mkfs|diskpart)\b\s`),
 		regexp.MustCompile(`\bdd\s+if=`),
-		regexp.MustCompile(`>\s*/dev/sd[a-z]\b`),            // Block writes to disk devices (but allow /dev/null)
+		regexp.MustCompile(`>\s*/dev/sd[a-z]\b`),
 		regexp.MustCompile(`\b(shutdown|reboot|poweroff)\b`),
 		regexp.MustCompile(`:\(\)\s*\{.*\};\s*:`),
+
+		// --- Long-option variants of rm ---
+		regexp.MustCompile(`\brm\s+.*--recursive\b`),
+		regexp.MustCompile(`\brm\s+.*--force\b`),
+		regexp.MustCompile(`\brm\s+.*--no-preserve-root\b`),
+
+		// --- Interpreter wrappers executing arbitrary code ---
+		regexp.MustCompile(`\bpython[23]?\s+.*-c\b`),
+		regexp.MustCompile(`\bperl\s+.*-e\b`),
+		regexp.MustCompile(`\bruby\s+.*-e\b`),
+		regexp.MustCompile(`\bnode\s+.*-e\b`),
+		regexp.MustCompile(`\bnode\s+.*--eval\b`),
+
+		// --- Network exfiltration / reverse shells ---
+		regexp.MustCompile(`\b(nc|netcat|ncat|socat)\b`),
+		regexp.MustCompile(`\bcurl\b.*\|\s*\b(sh|bash|zsh|dash)\b`),
+		regexp.MustCompile(`\bwget\b.*\|\s*\b(sh|bash|zsh|dash)\b`),
+		regexp.MustCompile(`\bcurl\b.*\|\s*\bsource\b`),
+		regexp.MustCompile(`\bwget\b.*\|\s*\bsource\b`),
+
+		// --- find abuse ---
+		regexp.MustCompile(`\bfind\b.*-delete\b`),
+		regexp.MustCompile(`\bfind\b.*-exec\b`),
+
+		// --- Dangerous file permission / ownership changes ---
+		regexp.MustCompile(`\bchmod\b.*\s/(etc|usr|bin|sbin|boot|lib|var|root)\b`),
+		regexp.MustCompile(`\bchown\b.*\s/(etc|usr|bin|sbin|boot|lib|var|root)\b`),
+
+		// --- Subshell execution of dangerous commands ---
+		regexp.MustCompile(`\$\(.*\b(rm|dd|mkfs|shutdown|reboot|curl\s.*\|\s*(sh|bash))\b.*\)`),
+		regexp.MustCompile("`.*\\b(rm|dd|mkfs|shutdown|reboot|curl\\s.*\\|\\s*(sh|bash))\\b.*`"),
+
+		// --- Block eval / source of remote content ---
+		regexp.MustCompile(`\beval\b.*\$\(`),
+		regexp.MustCompile(`\beval\b.*` + "`"),
+
+		// --- Block writing to init / cron system paths ---
+		regexp.MustCompile(`>\s*/(etc/(cron|init|systemd|sudoers))`),
 	}
 
 	return &ExecTool{
 		workingDir:          workingDir,
-		timeout:             60 * time.Second,
+		timeout:             30 * time.Second,
 		denyPatterns:        denyPatterns,
 		allowPatterns:       nil,
-		restrictToWorkspace: false,
+		restrictToWorkspace: true,
 	}
 }
 
@@ -74,6 +113,21 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) (st
 
 	cwd := t.workingDir
 	if wd, ok := args["working_dir"].(string); ok && wd != "" {
+		// Validate that the requested working_dir is within the workspace
+		if t.restrictToWorkspace && t.workingDir != "" {
+			absWD, err := filepath.Abs(wd)
+			if err != nil {
+				return "Error: invalid working directory path", nil
+			}
+			absWorkspace, err := filepath.Abs(t.workingDir)
+			if err != nil {
+				return "Error: invalid workspace path", nil
+			}
+			// Ensure the requested dir is the workspace or a subdirectory of it
+			if absWD != absWorkspace && !strings.HasPrefix(absWD, absWorkspace+string(filepath.Separator)) {
+				return "Error: working_dir must be within the workspace", nil
+			}
+		}
 		cwd = wd
 	}
 
@@ -153,27 +207,32 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 			return "Command blocked by safety guard (path traversal detected)"
 		}
 
-		cwdPath, err := filepath.Abs(cwd)
+		// Use the workspace root (not the current cwd) as the boundary
+		workspacePath := t.workingDir
+		if workspacePath == "" {
+			workspacePath = cwd
+		}
+		absWorkspace, err := filepath.Abs(workspacePath)
 		if err != nil {
-			return ""
+			return "Command blocked by safety guard (cannot resolve workspace path)"
 		}
 
 		pathPattern := regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[^\s\"']+`)
 		matches := pathPattern.FindAllString(cmd, -1)
 
 		for _, raw := range matches {
+			// Allow common safe system paths that commands legitimately reference
+			if raw == "/dev/null" || raw == "/dev/stdin" || raw == "/dev/stdout" || raw == "/dev/stderr" ||
+				raw == "/tmp" || strings.HasPrefix(raw, "/tmp/") {
+				continue
+			}
 			p, err := filepath.Abs(raw)
 			if err != nil {
 				continue
 			}
-
-			rel, err := filepath.Rel(cwdPath, p)
-			if err != nil {
-				continue
-			}
-
-			if strings.HasPrefix(rel, "..") {
-				return "Command blocked by safety guard (path outside working dir)"
+			// Path must be within the workspace
+			if p != absWorkspace && !strings.HasPrefix(p, absWorkspace+string(filepath.Separator)) {
+				return "Command blocked by safety guard (path outside workspace)"
 			}
 		}
 	}
