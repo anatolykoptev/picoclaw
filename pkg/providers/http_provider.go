@@ -201,6 +201,8 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 		if apiBase == "" {
 			apiBase = "https://generativelanguage.googleapis.com/v1beta"
 		}
+		// Native Gemini API — use dedicated provider
+		return NewGeminiProvider(apiKey, apiBase), nil
 
 	case strings.Contains(lowerModel, "glm") || strings.Contains(lowerModel, "zhipu") || strings.Contains(lowerModel, "zai"):
 		apiKey = cfg.Providers.Zhipu.APIKey

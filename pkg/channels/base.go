@@ -50,6 +50,10 @@ func (c *BaseChannel) IsAllowed(senderID string) bool {
 		if senderID == allowed {
 			return true
 		}
+		// Support "428660|username" matching against "428660"
+		if len(senderID) > len(allowed) && senderID[:len(allowed)] == allowed && senderID[len(allowed)] == '|' {
+			return true
+		}
 	}
 
 	return false
