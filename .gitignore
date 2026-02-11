@@ -1,4 +1,5 @@
 bin/
+picoclaw
 *.exe
 *.dll
 *.so
@@ -12,4 +13,7 @@ coverage.txt
 coverage.html
 .DS_Store
 build
+.env
+*.pem
+*.key
 
