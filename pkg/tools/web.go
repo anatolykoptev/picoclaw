@@ -250,11 +250,6 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]interface{})
 		return "", fmt.Errorf("missing domain in URL")
 	}
 
-	// SSRF prevention: resolve hostname and block private/internal IPs
-	if err := validateHostNotPrivate(parsedURL.Host); err != nil {
-		return "", err
-	}
-
 	maxChars := t.maxChars
 	if mc, ok := args["maxChars"].(float64); ok {
 		if int(mc) > 100 {

@@ -21,62 +21,23 @@ type ExecTool struct {
 }
 
 func NewExecTool(workingDir string) *ExecTool {
+	// Minimal denylist — only catastrophic commands (OpenClaw-level trust)
 	denyPatterns := []*regexp.Regexp{
-		// --- Original patterns (keep) ---
-		regexp.MustCompile(`\brm\s+-[rf]{1,2}\b`),
-		regexp.MustCompile(`\bdel\s+/[fq]\b`),
-		regexp.MustCompile(`\brmdir\s+/s\b`),
-		regexp.MustCompile(`\b(format|mkfs|diskpart)\b\s`),
-		regexp.MustCompile(`\bdd\s+if=`),
-		regexp.MustCompile(`>\s*/dev/sd[a-z]\b`),
-		regexp.MustCompile(`\b(shutdown|reboot|poweroff)\b`),
-		regexp.MustCompile(`:\(\)\s*\{.*\};\s*:`),
-
-		// --- Long-option variants of rm ---
-		regexp.MustCompile(`\brm\s+.*--recursive\b`),
-		regexp.MustCompile(`\brm\s+.*--force\b`),
-		regexp.MustCompile(`\brm\s+.*--no-preserve-root\b`),
-
-		// --- Interpreter wrappers executing arbitrary code ---
-		regexp.MustCompile(`\bpython[23]?\s+.*-c\b`),
-		regexp.MustCompile(`\bperl\s+.*-e\b`),
-		regexp.MustCompile(`\bruby\s+.*-e\b`),
-		regexp.MustCompile(`\bnode\s+.*-e\b`),
-		regexp.MustCompile(`\bnode\s+.*--eval\b`),
-
-		// --- Network exfiltration / reverse shells ---
-		regexp.MustCompile(`\b(nc|netcat|ncat|socat)\b`),
-		regexp.MustCompile(`\bcurl\b.*\|\s*\b(sh|bash|zsh|dash)\b`),
-		regexp.MustCompile(`\bwget\b.*\|\s*\b(sh|bash|zsh|dash)\b`),
-		regexp.MustCompile(`\bcurl\b.*\|\s*\bsource\b`),
-		regexp.MustCompile(`\bwget\b.*\|\s*\bsource\b`),
-
-		// --- find abuse ---
-		regexp.MustCompile(`\bfind\b.*-delete\b`),
-		regexp.MustCompile(`\bfind\b.*-exec\b`),
-
-		// --- Dangerous file permission / ownership changes ---
-		regexp.MustCompile(`\bchmod\b.*\s/(etc|usr|bin|sbin|boot|lib|var|root)\b`),
-		regexp.MustCompile(`\bchown\b.*\s/(etc|usr|bin|sbin|boot|lib|var|root)\b`),
-
-		// --- Subshell execution of dangerous commands ---
-		regexp.MustCompile(`\$\(.*\b(rm|dd|mkfs|shutdown|reboot|curl\s.*\|\s*(sh|bash))\b.*\)`),
-		regexp.MustCompile("`.*\\b(rm|dd|mkfs|shutdown|reboot|curl\\s.*\\|\\s*(sh|bash))\\b.*`"),
-
-		// --- Block eval / source of remote content ---
-		regexp.MustCompile(`\beval\b.*\$\(`),
-		regexp.MustCompile(`\beval\b.*` + "`"),
-
-		// --- Block writing to init / cron system paths ---
-		regexp.MustCompile(`>\s*/(etc/(cron|init|systemd|sudoers))`),
+		regexp.MustCompile(`\brm\s+-[rf]{2}\s+/\s*$`),         // rm -rf /
+		regexp.MustCompile(`\brm\s+.*--no-preserve-root\b`),    // rm --no-preserve-root
+		regexp.MustCompile(`\b(mkfs|format|diskpart)\b\s`),     // disk formatting
+		regexp.MustCompile(`\bdd\s+.*of=/dev/sd[a-z]\b`),       // dd to disk
+		regexp.MustCompile(`>\s*/dev/sd[a-z]\b`),               // redirect to disk
+		regexp.MustCompile(`\b(shutdown|reboot|poweroff)\b`),   // system shutdown
+		regexp.MustCompile(`:\(\)\s*\{.*\};\s*:`),              // fork bomb
 	}
 
 	return &ExecTool{
 		workingDir:          workingDir,
-		timeout:             30 * time.Second,
+		timeout:             60 * time.Second,
 		denyPatterns:        denyPatterns,
 		allowPatterns:       nil,
-		restrictToWorkspace: true,
+		restrictToWorkspace: false,
 	}
 }
 
