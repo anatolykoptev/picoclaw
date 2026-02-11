@@ -15,7 +15,20 @@ type Config struct {
 	Providers ProvidersConfig `json:"providers"`
 	Gateway   GatewayConfig   `json:"gateway"`
 	Tools     ToolsConfig     `json:"tools"`
+	Memory    MemoryConfig    `json:"memory"`
 	mu        sync.RWMutex
+}
+
+type MemoryConfig struct {
+	MemDB MemDBConfig `json:"memdb"`
+}
+
+type MemDBConfig struct {
+	Enabled bool   `json:"enabled" env:"PICOCLAW_MEMORY_MEMDB_ENABLED"`
+	URL     string `json:"url" env:"PICOCLAW_MEMORY_MEMDB_URL"`
+	UserID  string `json:"user_id" env:"PICOCLAW_MEMORY_MEMDB_USER_ID"`
+	CubeID  string `json:"cube_id" env:"PICOCLAW_MEMORY_MEMDB_CUBE_ID"`
+	Secret  string `json:"secret" env:"PICOCLAW_MEMORY_MEMDB_SECRET"`
 }
 
 type AgentsConfig struct {
@@ -166,6 +179,14 @@ func DefaultConfig() *Config {
 					APIKey:     "",
 					MaxResults: 5,
 				},
+			},
+		},
+		Memory: MemoryConfig{
+			MemDB: MemDBConfig{
+				Enabled: false,
+				URL:     "http://127.0.0.1:8080",
+				UserID:  "memos",
+				CubeID:  "memos",
 			},
 		},
 	}

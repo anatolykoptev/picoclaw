@@ -146,7 +146,7 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 	return result
 }
 
-func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary string, currentMessage string, media []string, channel, chatID string) []providers.Message {
+func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary string, currentMessage string, media []string, channel, chatID string, memdbContext string) []providers.Message {
 	messages := []providers.Message{}
 
 	systemPrompt := cb.BuildSystemPrompt()
@@ -154,6 +154,11 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 	// Add Current Session info if provided
 	if channel != "" && chatID != "" {
 		systemPrompt += fmt.Sprintf("\n\n## Current Session\nChannel: %s\nChat ID: %s", channel, chatID)
+	}
+
+	// Add MemDB context if available
+	if memdbContext != "" {
+		systemPrompt += "\n\n" + memdbContext
 	}
 
 	// Log system prompt summary for debugging (debug mode only)

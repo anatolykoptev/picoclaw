@@ -17,6 +17,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/memory"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/tools"
@@ -31,6 +32,7 @@ type AgentLoop struct {
 	sessions       *session.SessionManager
 	contextBuilder *ContextBuilder
 	tools          *tools.ToolRegistry
+	memdb          *memory.MemDBClient
 	running        bool
 }
 
@@ -71,6 +73,28 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 
 	sessionsManager := session.NewSessionManager(filepath.Join(filepath.Dir(cfg.WorkspacePath()), "sessions"))
 
+	// Initialize MemDB client if enabled
+	var memdbClient *memory.MemDBClient
+	if cfg.Memory.MemDB.Enabled {
+		memdbClient = memory.NewMemDBClient(memory.MemDBConfig{
+			Enabled: cfg.Memory.MemDB.Enabled,
+			URL:     cfg.Memory.MemDB.URL,
+			UserID:  cfg.Memory.MemDB.UserID,
+			CubeID:  cfg.Memory.MemDB.CubeID,
+			Secret:  cfg.Memory.MemDB.Secret,
+		})
+		if memdbClient.Health(context.Background()) {
+			logger.InfoCF("agent", "MemDB connected", map[string]interface{}{
+				"url": cfg.Memory.MemDB.URL,
+			})
+		} else {
+			logger.ErrorCF("agent", "MemDB unreachable, disabling", map[string]interface{}{
+				"url": cfg.Memory.MemDB.URL,
+			})
+			memdbClient = nil
+		}
+	}
+
 	return &AgentLoop{
 		bus:            msgBus,
 		provider:       provider,
@@ -80,6 +104,7 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		sessions:       sessionsManager,
 		contextBuilder: NewContextBuilder(workspace, func() []string { return toolsRegistry.GetSummaries() }),
 		tools:          toolsRegistry,
+		memdb:          memdbClient,
 		running:        false,
 	}
 }
@@ -159,6 +184,26 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		}
 	}
 
+	// Search MemDB for relevant memories
+	var memdbContext string
+	if al.memdb != nil {
+		searchResult, err := al.memdb.Search(ctx, msg.Content)
+		if err != nil {
+			logger.ErrorCF("memdb", "search failed", map[string]interface{}{"error": err.Error()})
+		} else {
+			memdbContext = searchResult.FormatForPrompt()
+			if memdbContext != "" {
+				total := len(searchResult.TextMemories) + len(searchResult.SkillMemories) + len(searchResult.PrefMemories)
+				logger.InfoCF("memdb", "injecting memories", map[string]interface{}{
+					"text":  len(searchResult.TextMemories),
+					"skill": len(searchResult.SkillMemories),
+					"pref":  len(searchResult.PrefMemories),
+					"total": total,
+				})
+			}
+		}
+	}
+
 	history := al.sessions.GetHistory(msg.SessionKey)
 	summary := al.sessions.GetSummary(msg.SessionKey)
 
@@ -169,6 +214,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		nil,
 		msg.Channel,
 		msg.ChatID,
+		memdbContext,
 	)
 
 	iteration := 0
@@ -301,6 +347,14 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	al.sessions.AddMessage(msg.SessionKey, "assistant", finalContent)
 	al.sessions.Save(al.sessions.GetOrCreate(msg.SessionKey))
 
+	// Async store to MemDB
+	if al.memdb != nil {
+		go al.memdb.Store(context.Background(), []map[string]string{
+			{"role": "user", "content": msg.Content},
+			{"role": "assistant", "content": finalContent},
+		})
+	}
+
 	// Log response preview
 	responsePreview := truncate(finalContent, 120)
 	logger.InfoCF("agent", fmt.Sprintf("Response to %s:%s: %s", msg.Channel, msg.SenderID, responsePreview),
@@ -360,6 +414,7 @@ func (al *AgentLoop) processSystemMessage(ctx context.Context, msg bus.InboundMe
 		nil,
 		originChannel,
 		originChatID,
+		"", // no memdb context for system messages
 	)
 
 	iteration := 0
